@@ -25,3 +25,12 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# AI Microservice (Python) - model besar & dependency tidak ikut repo
+/ai-service/.venv/
+/ai-service/models/
+/ai-service/data/
+/ai-service/reports/
+/ai-service/.env
+__pycache__/
+*.pyc
