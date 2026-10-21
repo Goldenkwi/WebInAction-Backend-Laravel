@@ -1,0 +1,20 @@
+# ============================================================================
+# AI MICROSERVICE - dependencies
+# ============================================================================
+# Versi di-pin dengan alasan:
+#   - transformers>=4.35  : dukungan penuh tokenizer.json (fast tokenizer)
+#                           tanpa perlu vocab.txt terpisah.
+#   - torch>=2.0          : runtime inferensi CPU/GPU.
+#   - fastapi/uvicorn     : framework HTTP untuk model serving.
+# ============================================================================
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
+transformers>=4.35
+torch>=2.0
+safetensors>=0.4
+python-dotenv>=1.0
+
+# Dipakai oleh tools/evaluate.py (analisis akurasi & kurva threshold)
+pandas>=2.0
+scikit-learn>=1.3
