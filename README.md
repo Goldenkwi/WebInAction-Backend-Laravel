@@ -1,58 +1,147 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Sistem Pelaporan Masyarakat — Backend & AI Microservice
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Backend REST API untuk Sistem Pelaporan Masyarakat Berbasis AI (IndoBERT P2).
+Warga mengirim laporan bebas; AI mengklasifikasi **kategori** (12 label) dan
+**tingkat prioritas** (4 level), lalu admin memverifikasi dan menindaklanjuti.
 
-## About Laravel
+Dua service terpisah: **Laravel** (logika bisnis + database) dan **AI
+Microservice** (FastAPI, menyajikan 2 model IndoBERT P2 lewat JSON/HTTP).
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Stack
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+| Bagian | Teknologi |
+|---|---|
+| Backend | Laravel 13 · PHP 8.5 · Laravel Sanctum · MySQL 8.4 |
+| AI | Python 3.14 · FastAPI · PyTorch 2.14 (CPU) · Transformers 5.20 |
+| Model | `indobenchmark/indobert-base-p2` (IndoBERT P2) fine-tuned × 2 |
+| Frontend | Next.js 14 + Tailwind CSS (repo terpisah) |
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Struktur
 
-## Learning Laravel
+```
+app/
+  Http/Controllers/Api/   ReportsController · Admin/ReportController · StatsController · CategoriesController
+  Http/Requests/Api/      Form Request (validasi + otorisasi per endpoint)
+  Http/Resources/         shaping output + penyensoran data
+  Models/                 User · Categories · Reports · ReportsLog
+  Services/               AiBertService (panggil AI) · ReportService (aturan bisnis)
+  Exceptions/             InvalidReportTransitionException
+  Console/Commands/       ai:check-labels
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+ai-service/               AI Microservice (Python)
+  app/main.py             FastAPI: POST /analyze · GET /health
+  app/inference.py        wrapper model (load sekali, predict)
+  models/                 model kategori + model prioritas (diunduh, tidak masuk git)
+  data/                   dataset latih/uji (diunduh, tidak masuk git)
+  tools/                  train.py · evaluate.py · check_labels.py
+  setup-models.sh         unduh model dari Google Drive
 
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
-
-```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+docs/                     dokumentasi lengkap (mulai dari docs/README.md)
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+## Menjalankan
 
-## Contributing
+### 1. Dependency
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+```bash
+composer install
+npm install && npm run build      # hanya butuh sekali
+cp .env.example .env && php artisan key:generate
+```
 
-## Code of Conduct
+Extension PHP `pdo_mysql` wajib ada:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+```bash
+# Fedora
+pkexec dnf install -y php-mysqlnd
+# Ubuntu
+sudo apt install php-mysql
+php -m | grep pdo_mysql
+```
 
-## Security Vulnerabilities
+### 2. Model AI (~951 MB)
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+```bash
+cd ai-service
+python3 -m venv .venv
+./.venv/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+./.venv/bin/pip install -r requirements.txt
+pip install gdown
+./setup-models.sh                  # unduh 2 model dari Google Drive
+```
 
-## License
+### 3. Database
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+```bash
+mysql -u root -e "CREATE DATABASE IF NOT EXISTS laravel CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
+
+### 4. AI Microservice (port 8100)
+
+```bash
+cd ai-service
+./.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8100
+```
+
+Dokumentasi interaktif: <http://127.0.0.1:8100/docs>
+
+### 5. Laravel (port 8000)
+
+```bash
+php artisan migrate:fresh --seed
+php artisan storage:link
+php artisan serve
+```
+
+### 6. Verifikasi
+
+```bash
+php artisan test            # 81 test
+php artisan ai:check-labels # cek label model <-> kategori database
+```
+
+## Akun demo
+
+| Peran | Email | Password |
+|---|---|---|
+| Warga | `warga@example.com` | `password123` |
+| Admin Verifikator | `verifier@example.com` | `password123` |
+| Admin Instansi | `agency@example.com` | `password123` |
+
+## Endpoint
+
+Semua response memakai `{ success, message, data }`. `errors` muncul saat 422,
+`meta` pada endpoint ber-pagination.
+
+| Method | Endpoint | Akses |
+|---|---|---|
+| POST | `/api/auth/register` | Publik |
+| POST | `/api/auth/login` | Publik |
+| POST | `/api/auth/logout` | Login |
+| GET | `/api/auth/me` | Login |
+| GET | `/api/categories` | Publik |
+| GET | `/api/categories/{id}` | Publik |
+| POST | `/api/categories` | Admin |
+| PUT | `/api/categories/{id}` | Admin |
+| DELETE | `/api/categories/{id}` | Admin |
+| GET | `/api/reports/public` | Publik |
+| GET | `/api/reports/my` | Login |
+| POST | `/api/reports` | citizen |
+| GET | `/api/reports/{id}` | Login |
+| GET | `/api/admin/reports` | Admin |
+| PATCH | `/api/admin/reports/{id}/verify` | Admin |
+| PATCH | `/api/admin/reports/{id}/reject` | Admin |
+| POST | `/api/admin/reports/{id}/followup` | Admin |
+| GET | `/api/stats/summary` | Login |
+
+Request memakai header `Authorization: Bearer <token>`.
+
+## Dokumentasi
+
+| Berkas | Isi |
+|---|---|
+| [docs/README.md](docs/README.md) | Peta proyek, cara jalanin, cheat sheet curl |
+| [docs/SRS.md](docs/SRS.md) | Spesifikasi kebutuhan (versi final) |
+| [docs/06-ai-bert-dua-model.md](docs/06-ai-bert-dua-model.md) | Panduan AI BERT, evaluasi model, kalibrasi threshold |
+| [docs/07-microservice-ai.md](docs/07-microservice-ai.md) | Kenapa AI-nya dipisah jadi microservice |
+| [ai-service/README.md](ai-service/README.md) | Detail service AI & tools |
