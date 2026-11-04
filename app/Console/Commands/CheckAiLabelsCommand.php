@@ -6,46 +6,10 @@ use App\Models\Categories;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
-/**
- * ============================================================================
- * COMMAND: ai:check-labels
- * ============================================================================
- * Memeriksa apakah label yang dikembalikan model AI cocok dengan kategori
- * yang ada di database.
- *
- * ---------------------------------------------------------------------------
- * KENAPA COMMAND INI PENTING?
- * ---------------------------------------------------------------------------
- * AI Microservice mengembalikan label dalam bentuk ANGKA (0-11). Angka itu
- * adalah nomor label di DALAM model. Database kita menyimpan kategori dengan
- * kolom `ai_label_id` yang menyatakan "kategori ini mewakili label nomor
- * berapa dari model".
- *
- * Kalau keduanya tidak cocok (mis. karena kategori di DB ditambah/diubah
- * tanpa menyesuaikan model), maka:
- *   - laporan akan selalu "tidak yakin" tanpa alasan yang jelas, dan
- *   - kategori bisa salah dishutdown ke instansi yang keliru.
- *
- * Command ini membaca label asli dari model lewat endpoint /health milik AI
- * Microservice, lalu mencocokkannya dengan database. Jalankan SEBELUM demo.
- *
- * Contoh output:
- *   Label model   : 12 kategori
- *   Label database: 12 kategori
- *   Cocok         : 12
- *   Tidak cocok   : 0
- *   -> KONTRAK SESUAI, aman untuk demo.
- */
 class CheckAiLabelsCommand extends Command
 {
-    /**
-     * @var string
-     */
     protected $signature = 'ai:check-labels';
 
-    /**
-     * @var string
-     */
     protected $description = 'Cek kecocokan label model AI dengan kategori di database';
 
     public function handle(): int
@@ -53,7 +17,6 @@ class CheckAiLabelsCommand extends Command
         $this->info('Memeriksa kontrak label antara AI Microservice dan database...');
         $this->newLine();
 
-        // 1. Ambil label asli dari model.
         $modelLabels = $this->fetchModelLabels();
 
         if ($modelLabels === null) {
@@ -66,10 +29,8 @@ class CheckAiLabelsCommand extends Command
             return self::FAILURE;
         }
 
-        // 2. Ambil kategori dari database.
         $categories = Categories::orderBy('ai_label_id')->get();
 
-        // 3. Cocokkan.
         $matched = 0;
         $mismatch = [];
         $missingDb = [];
@@ -83,7 +44,6 @@ class CheckAiLabelsCommand extends Command
                 continue;
             }
 
-            // Bandingkan nama dengan normalisasi longgar (case & spasi diabaikan).
             if ($this->normalize($category->name) === $this->normalize($labelName)) {
                 $matched++;
             } else {
@@ -91,12 +51,10 @@ class CheckAiLabelsCommand extends Command
             }
         }
 
-        // Kategori di DB yang tidak punya pasangan label model.
         $orphan = $categories->filter(
             fn (Categories $c) => ! array_key_exists((int) $c->ai_label_id, $modelLabels)
         )->pluck('name');
 
-        // --- Tampilkan hasil ---
         $this->line('  Label model   : '.count($modelLabels).' kategori');
         $this->line('  Label database: '.$categories->count().' kategori');
         $this->line("  Cocok         : {$matched}");
@@ -130,11 +88,6 @@ class CheckAiLabelsCommand extends Command
         return self::FAILURE;
     }
 
-    /**
-     * Ambil id2label dari AI Microservice lewat GET /health.
-     *
-     * @return array<int|string, string>|null
-     */
     protected function fetchModelLabels(): ?array
     {
         try {
@@ -154,9 +107,6 @@ class CheckAiLabelsCommand extends Command
         return is_array($labels) ? $labels : null;
     }
 
-    /**
-     * Normalisasi nama agar perbandingan tidak rapuh terhadap kapital/spasi.
-     */
     protected function normalize(string $value): string
     {
         return preg_replace('/[^a-z0-9]+/', '', strtolower($value)) ?? $value;

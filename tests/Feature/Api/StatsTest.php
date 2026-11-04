@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\Agency;
 use App\Models\Categories;
 use App\Models\Reports;
 use App\Models\ReportsLog;
@@ -142,5 +143,142 @@ class StatsTest extends TestCase
             ->getJson('/api/stats/summary')
             ->assertStatus(200)
             ->assertJsonPath('data.total_reports', 0);
+    }
+
+    public function test_agency_admin_only_sees_stats_for_own_agency(): void
+    {
+        $ownAgency = Agency::factory()->create();
+        $otherAgency = Agency::factory()->create();
+
+        $agencyAdmin = User::factory()->create([
+            'role' => User::ROLE_AGENCY,
+            'agency_id' => $ownAgency->id,
+        ]);
+
+        $category = Categories::where('ai_label_id', 0)->first();
+
+        // Laporan milik instansi sendiri: 4 status berbeda.
+        Reports::factory()->create([
+            'assigned_agency_id' => $ownAgency->id,
+            'category_id' => $category->id,
+            'priority' => Reports::PRIORITY_DARURAT,
+            'status' => Reports::STATUS_PENDING,
+        ]);
+        Reports::factory()->create([
+            'assigned_agency_id' => $ownAgency->id,
+            'category_id' => $category->id,
+            'priority' => Reports::PRIORITY_RENDAH,
+            'status' => Reports::STATUS_VERIFIED,
+        ]);
+        $ownCompleted = Reports::factory()->create([
+            'assigned_agency_id' => $ownAgency->id,
+            'category_id' => $category->id,
+            'priority' => Reports::PRIORITY_RENDAH,
+            'status' => Reports::STATUS_FOLLOWED_UP,
+            'created_at' => now()->subDays(4),
+        ]);
+        Reports::factory()->create([
+            'assigned_agency_id' => $ownAgency->id,
+            'category_id' => $category->id,
+            'priority' => Reports::PRIORITY_SEDANG,
+            'status' => Reports::STATUS_REJECTED,
+        ]);
+
+        ReportsLog::forceCreate([
+            'report_id' => $ownCompleted->id,
+            'changed_by' => $agencyAdmin->id,
+            'status' => Reports::STATUS_FOLLOWED_UP,
+            'note' => 'Selesai dalam 2 hari.',
+            'created_at' => now()->subDays(2),
+        ]);
+
+        // Laporan instansi lain tidak boleh ikut terhitung.
+        Reports::factory()->count(5)->create([
+            'assigned_agency_id' => $otherAgency->id,
+            'category_id' => $category->id,
+            'priority' => Reports::PRIORITY_DARURAT,
+            'status' => Reports::STATUS_PENDING,
+        ]);
+        $otherCompleted = Reports::factory()->create([
+            'assigned_agency_id' => $otherAgency->id,
+            'category_id' => $category->id,
+            'priority' => Reports::PRIORITY_DARURAT,
+            'status' => Reports::STATUS_FOLLOWED_UP,
+            'created_at' => now()->subDays(20),
+        ]);
+
+        ReportsLog::forceCreate([
+            'report_id' => $otherCompleted->id,
+            'changed_by' => null,
+            'status' => Reports::STATUS_FOLLOWED_UP,
+            'note' => 'Selesai dalam 19 hari.',
+            'created_at' => now()->subDays(1),
+        ]);
+
+        $response = $this->actingAs($agencyAdmin)->getJson('/api/stats/summary');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.total_reports', 4)
+            ->assertJsonPath('data.pending_reports', 1)
+            ->assertJsonPath('data.verified_reports', 1)
+            ->assertJsonPath('data.completed_reports', 1)
+            ->assertJsonPath('data.rejected_reports', 1);
+
+        $this->assertEquals(2, $response->json('data.average_resolution_days'));
+
+        $byPriority = collect($response->json('data.by_priority'))->keyBy('priority');
+        $this->assertSame(1, $byPriority['darurat']['count']);
+        $this->assertSame(2, $byPriority['rendah']['count']);
+        $this->assertSame(1, $byPriority['sedang']['count']);
+        $this->assertSame(0, $byPriority['tinggi']['count']);
+
+        $byCategory = collect($response->json('data.by_category'))
+            ->firstWhere('category_id', $category->id);
+        $this->assertNotNull($byCategory);
+        $this->assertSame(4, $byCategory['count']);
+    }
+
+    public function test_agency_admin_without_agency_gets_zero_stats(): void
+    {
+        $agency = Agency::factory()->create();
+
+        $agencyAdmin = User::factory()->create([
+            'role' => User::ROLE_AGENCY,
+            'agency_id' => null,
+        ]);
+
+        Reports::factory()->create([
+            'assigned_agency_id' => $agency->id,
+            'status' => Reports::STATUS_FOLLOWED_UP,
+        ]);
+
+        $response = $this->actingAs($agencyAdmin)->getJson('/api/stats/summary');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.total_reports', 0)
+            ->assertJsonPath('data.completed_reports', 0)
+            ->assertJsonPath('data.average_resolution_days', 0)
+            ->assertJsonPath('data.by_category', []);
+
+        $this->assertSame(
+            [0, 0, 0, 0],
+            array_column($response->json('data.by_priority'), 'count')
+        );
+    }
+
+    public function test_verifier_stats_remain_global_across_agencies(): void
+    {
+        $firstAgency = Agency::factory()->create();
+        $secondAgency = Agency::factory()->create();
+        $verifier = User::factory()->create(['role' => User::ROLE_VERIFIER]);
+
+        Reports::factory()->create(['assigned_agency_id' => $firstAgency->id]);
+        Reports::factory()->create(['assigned_agency_id' => $secondAgency->id]);
+        Reports::factory()->create(['assigned_agency_id' => null]);
+
+        $this->actingAs($verifier)
+            ->getJson('/api/stats/summary')
+            ->assertStatus(200)
+            ->assertJsonPath('data.total_reports', 3);
     }
 }

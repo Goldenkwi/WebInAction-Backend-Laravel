@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\InvalidReportTransitionException;
+use App\Models\Categories;
 use App\Models\Reports;
 use App\Models\ReportsLog;
 use App\Models\User;
@@ -123,7 +124,7 @@ class ReportService
             return $report;
         });
 
-        return $report->fresh(['category', 'aiPredictedCategory', 'user', 'logs']);
+        return $report->fresh(['category', 'aiPredictedCategory', 'assignedAgency', 'user', 'logs']);
     }
 
     /**
@@ -131,19 +132,25 @@ class ReportService
      *
      * @param  int  $categoryId  Kategori final yang dipilih admin.
      * @param  string  $note  Memo penugasan (wajib, BR-02).
+     * @param  int|null  $agencyId  Instansi final; NULL = pakai default kategori.
      */
-    public function verify(Reports $report, User $admin, int $categoryId, string $note): Reports
+    public function verify(Reports $report, User $admin, int $categoryId, string $note, ?int $agencyId = null): Reports
     {
         $this->assertTransition($report, [Reports::STATUS_PENDING]);
 
+        // Kalau admin tidak memilih instansi, gunakan default kategori sebagai
+        // rekomendasi. Admin tetap boleh memilih instansi lain (override).
+        $agencyId ??= Categories::whereKey($categoryId)->value('default_agency_id');
+
         $report->update([
             'category_id' => $categoryId,
+            'assigned_agency_id' => $agencyId,
             'status' => Reports::STATUS_VERIFIED,
         ]);
 
         $this->writeLog($report, Reports::STATUS_VERIFIED, $note, $admin);
 
-        return $report->fresh(['category', 'aiPredictedCategory', 'logs']);
+        return $report->fresh(['category', 'aiPredictedCategory', 'assignedAgency', 'logs']);
     }
 
     /**
@@ -159,7 +166,7 @@ class ReportService
 
         $this->writeLog($report, Reports::STATUS_REJECTED, $note, $admin);
 
-        return $report->fresh(['category', 'aiPredictedCategory', 'logs']);
+        return $report->fresh(['category', 'aiPredictedCategory', 'assignedAgency', 'logs']);
     }
 
     /**
@@ -178,7 +185,7 @@ class ReportService
 
         $this->writeLog($report, Reports::STATUS_FOLLOWED_UP, $note, $admin, $proofPath);
 
-        return $report->fresh(['category', 'aiPredictedCategory', 'logs']);
+        return $report->fresh(['category', 'aiPredictedCategory', 'assignedAgency', 'logs']);
     }
 
     /**

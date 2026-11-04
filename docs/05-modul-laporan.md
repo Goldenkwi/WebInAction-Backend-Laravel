@@ -313,8 +313,37 @@ Sorting di tabel admin: **prioritas tertinggi dulu**, baru yang terbaru:
 }
 ```
 
-`by_status`, `by_category`, `by_priority`_exist buat **Pie Chart** di
+`by_status`, `by_category`, `by_priority` dipakai untuk **Pie Chart** di
 dashboard admin.
+
+### Cakupan statistik per instansi (agency_admin)
+
+`GET /api/stats/summary` boleh dipanggil semua user login, tetapi cakupan
+angkanya mengikuti role:
+
+| User | Cakupan angka |
+|---|---|
+| `verifier_admin` | seluruh sistem |
+| `citizen` | seluruh sistem (hanya tampilan publik) |
+| `agency_admin` | hanya `reports.assigned_agency_id = users.agency_id` |
+| `agency_admin` tanpa `agency_id` | nol (tidak fallback ke seluruh sistem) |
+
+Filter ini berlaku untuk **semua** angka, bukan hanya `total_reports`:
+
+- `total_reports`, `pending_reports`, `verified_reports`,
+  `completed_reports`, `rejected_reports`,
+- `average_resolution_days` (query log juga di-join ke `reports` lalu difilter),
+- `by_status`, `by_category`, `by_priority`.
+
+Implementasinya di `StatsController`:
+
+```php
+$agencyId = $this->agencyScopeId($request);   // null untuk verifier
+$reports  = $this->reportsQuery($agencyId);   // where assigned_agency_id
+```
+
+Jadi dashboard DPUPR tidak akan menampilkan angka laporan Dishub, walau
+keduanya memakai endpoint yang sama.
 
 ### Cara hitung rata-rata waktu penyelesaian
 

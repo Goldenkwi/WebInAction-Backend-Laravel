@@ -20,10 +20,10 @@ Microservice** (FastAPI, menyajikan 2 model IndoBERT P2 lewat JSON/HTTP).
 
 ```
 app/
-  Http/Controllers/Api/   ReportsController · Admin/ReportController · StatsController · CategoriesController
+  Http/Controllers/Api/   ReportsController · Admin/ReportController · StatsController · CategoriesController · AgencyController
   Http/Requests/Api/      Form Request (validasi + otorisasi per endpoint)
   Http/Resources/         shaping output + penyensoran data
-  Models/                 User · Categories · Reports · ReportsLog
+  Models/                 User · Categories · Reports · ReportsLog · Agency
   Services/               AiBertService (panggil AI) · ReportService (aturan bisnis)
   Exceptions/             InvalidReportTransitionException
   Console/Commands/       ai:check-labels
@@ -96,9 +96,71 @@ php artisan serve
 ### 6. Verifikasi
 
 ```bash
-php artisan test            # 81 test
+php artisan test            # 98 test
 php artisan ai:check-labels # cek label model <-> kategori database
 ```
+
+### 7. Windows (PowerShell)
+
+Perintah di atas ditulis untuk Linux/macOS. Di Windows, gunakan padanan berikut:
+
+```powershell
+composer install
+npm install; npm run build
+Copy-Item .env.example .env
+php artisan key:generate
+
+# Cek driver MySQL (PowerShell tidak punya grep)
+php -m | Select-String pdo_mysql
+
+# AI service: venv Windows ada di .venv\Scripts, bukan .venv/bin
+cd ai-service
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+# Jika muncul "running scripts is disabled":
+# Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+python -m pip install -r requirements.txt gdown
+bash setup-models.sh          # butuh Git Bash / WSL
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8100
+
+# Laravel
+php artisan migrate:fresh --seed
+php artisan storage:link
+php artisan serve
+```
+
+Catatan khusus Windows:
+
+- **`storage:link` gagal / permission denied.** Aktifkan *Developer Mode*
+  (Settings → Privacy & security → For developers) atau jalankan PowerShell
+  sebagai Administrator, lalu ulangi. Kalau tetap gagal, hapus link lama
+  `public\storage` lalu buat junction:
+  ```cmd
+  rmdir public\storage
+  mklink /J public\storage storage\app\public
+  ```
+- **`setup-models.sh` adalah skrip bash.** Jalankan lewat Git Bash/WSL
+  (`bash setup-models.sh`), atau unduh manual:
+  ```powershell
+  python -m gdown --folder -O models/category 1eB8bWHMlay6nlHNE1PL8Dry28KhJ9wPF
+  python -m gdown --folder -O models/priority 1o51Wh2-qdDzqqThnOetPsetjqFfWlQZO
+  ```
+- **Variabel environment inline gaya Linux tidak berlaku di PowerShell.**
+  `DB_CONNECTION=mysql php artisan test` akan error. Pakai:
+  ```powershell
+  $env:DB_CONNECTION="mysql"
+  $env:DB_DATABASE="laravel_test"
+  $env:DB_USERNAME="root"
+  $env:DB_PASSWORD=""
+  php artisan test
+  ```
+- **Path SQLite** gunakan garis miring `/` atau escape backslash:
+  `DB_DATABASE=C:/laragon/www/WebInAction/database/database.sqlite`.
+- **Pint:** `./vendor/bin/pint` → `php vendor\bin\pint` (atau
+  `vendor\bin\pint.bat`).
+- **Perintah multi-baris** dengan `\` di dokumentasi ini harus diganti
+  backtick `` ` `` di PowerShell.
 
 ## Akun demo
 
@@ -124,6 +186,11 @@ Semua response memakai `{ success, message, data }`. `errors` muncul saat 422,
 | POST | `/api/categories` | Admin |
 | PUT | `/api/categories/{id}` | Admin |
 | DELETE | `/api/categories/{id}` | Admin |
+| GET | `/api/agencies` | Publik |
+| GET | `/api/agencies/{id}` | Publik |
+| POST | `/api/admin/agencies` | Admin |
+| POST/PUT/PATCH | `/api/admin/agencies/{id}` | Admin |
+| DELETE | `/api/admin/agencies/{id}` | Admin |
 | GET | `/api/reports/public` | Publik |
 | GET | `/api/reports/my` | Login |
 | POST | `/api/reports` | citizen |
@@ -132,7 +199,7 @@ Semua response memakai `{ success, message, data }`. `errors` muncul saat 422,
 | PATCH | `/api/admin/reports/{id}/verify` | Admin |
 | PATCH | `/api/admin/reports/{id}/reject` | Admin |
 | POST | `/api/admin/reports/{id}/followup` | Admin |
-| GET | `/api/stats/summary` | Login |
+| GET | `/api/stats/summary` | Login (agency_admin otomatis difilter ke instansinya) |
 
 Request memakai header `Authorization: Bearer <token>`.
 

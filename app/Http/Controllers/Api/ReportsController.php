@@ -8,46 +8,13 @@ use App\Http\Resources\ReportDetailResource;
 use App\Http\Resources\ReportsResource;
 use App\Models\Reports;
 use App\Services\ReportService;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-/**
- * ============================================================================
- * REPORTS CONTROLLER  (FR-REP-01 s/d FR-REP-03, FR-AI-01 s/d FR-AI-03,
- *                     FR-PUB-01, FR-PUB-02, BR-03, NFR-02)
- * ============================================================================
- * Endpoint yang ditangani:
- *   GET  /api/reports/public -> daftar laporan publik   (Publik / Warga)
- *   GET  /api/reports/my     -> laporan milik saya       (citizen)
- *   POST /api/reports        -> kirim laporan baru       (citizen)
- *   GET  /api/reports/{id}   -> detail + timeline        (Semua yang login)
- *
- * CATATAN PENTING SOAL URUTAN ROUTE:
- * Di routes/api.php, route `reports/public` dan `reports/my` HARUS ditulis
- * SEBELUM route `reports/{report}`. Kalau dibalik, Laravel akan menganggap
- * kata "public" sebagai nilai {report} dan membawanya ke method show().
- */
 class ReportsController extends Controller
 {
     public function __construct(protected ReportService $reportService) {}
 
-    /**
-     * GET /api/reports/public
-     *
-     * Daftar laporan yang dipajang di halaman "Laporan Publik".
-     *
-     * BR-03: hanya laporan is_private = FALSE dan status verified/followed_up.
-     * Laporan yang masih "Menunggu" atau "Ditolak" TIDAK muncul di sini.
-     *
-     * Parameter query (FR-PUB-01):
-     *   ?search=         -> cari di judul
-     *   ?category_id=    -> filter kategori
-     *   ?status=         -> verified | followed_up
-     *   ?start_date=     -> rentang tanggal (YYYY-MM-DD)
-     *   ?end_date=
-     *   ?per_page=       -> default 10, max 50
-     */
     public function public(Request $request): JsonResponse
     {
         $perPage = min((int) $request->input('per_page', 10), 50);
@@ -55,9 +22,9 @@ class ReportsController extends Controller
         $reports = Reports::query()
             ->public()
             ->filter($request->only([
-                'search', 'category_id', 'status', 'priority', 'start_date', 'end_date',
+                'search', 'category_id', 'agency_id', 'status', 'priority', 'start_date', 'end_date',
             ]))
-            ->with(['category', 'aiPredictedCategory', 'user'])
+            ->with(['category', 'aiPredictedCategory', 'assignedAgency', 'user'])
             ->latest()
             ->paginate($perPage);
 
@@ -69,13 +36,6 @@ class ReportsController extends Controller
         );
     }
 
-    /**
-     * GET /api/reports/my
-     *
-     * Daftar laporan milik warga yang sedang login - SEMUA status
-     * (termasuk yang masih Menunggu, karena pelapor berhak memantau
-     * laporannya sendiri yang belum diverifikasi).
-     */
     public function my(Request $request): JsonResponse
     {
         $perPage = min((int) $request->input('per_page', 10), 50);
@@ -83,9 +43,9 @@ class ReportsController extends Controller
         $reports = Reports::query()
             ->where('user_id', $request->user()->id)
             ->filter($request->only([
-                'search', 'category_id', 'status', 'priority', 'start_date', 'end_date',
+                'search', 'category_id', 'agency_id', 'status', 'priority', 'start_date', 'end_date',
             ]))
-            ->with(['category', 'aiPredictedCategory', 'user'])
+            ->with(['category', 'aiPredictedCategory', 'assignedAgency', 'user'])
             ->latest()
             ->paginate($perPage);
 
@@ -97,20 +57,6 @@ class ReportsController extends Controller
         );
     }
 
-    /**
-     * POST /api/reports
-     *
-     * Warga mengirim laporan baru.
-     *
-     * Alur di dalam service (App\Services\ReportService):
-     *   1. Simpan foto (kalau ada)
-     *   2. Gabung title + description -> kirim ke AI Microservice
-     *   3. Simpan laporan (status SELALU pending) + catat audit trail
-     *
-     * Kalau AI Microservice tidak tersedia, laporan TETAP tersimpan dengan
-     * status pending (FR-AI-03 kondisi 3 / NFR-05). Form warga tidak pernah
-     * gagal gara-gara AI.
-     */
     public function store(StoreReportRequest $request): JsonResponse
     {
         $report = $this->reportService->createFromCitizen(
@@ -119,8 +65,6 @@ class ReportsController extends Controller
             image: $request->file('image'),
         );
 
-        // Pesan menyesuaikan kondisi: kalau AI-nya tidak tersedia, jangan
-        // berbohong pada warga ("telah dianalisis"). Ini FR-AI-03 kondisi 3.
         $message = $report->ai_confidence !== null
             ? 'Laporan berhasil dikirim dan telah dianalisis oleh sistem AI.'
             : 'Laporan berhasil dikirim. Modul AI sedang tidak tersedia, laporan menunggu verifikasi admin.';
@@ -136,7 +80,6 @@ class ReportsController extends Controller
             'is_private' => (bool) $report->is_private,
             'priority' => $report->priority,
 
-            // Ringkasan hasil analisis AI untuk ditampilkan ke warga.
             'ai_analysis' => [
                 'predicted_category_id' => $report->ai_pred_cat_id,
                 'predicted_category_name' => $report->aiPredictedCategory?->name,
@@ -150,27 +93,22 @@ class ReportsController extends Controller
         ], $message, 201);
     }
 
-    /**
-     * GET /api/reports/{report}
-     *
-     * Detail lengkap satu laporan + timeline_logs (FR-PUB-02).
-     *
-     * ---------------------------------------------------------------------------
-     * ATURAN AKSES (FR-REP-02)
-     * ---------------------------------------------------------------------------
-     * Laporan bisa dilihat oleh:
-     *   - pelapor itu sendiri (selalu, semua status), atau
-     *   - admin (semua laporan), atau
-     *   - siapa pun, HANYA kalau laporan publication-Ready:
-     *       is_private = false DAN status verified/followed_up
-     *
-     * Laporan privat yang masih "Menunggu" = hanya pelapor + admin yang bisa lihat.
-     */
     public function show(Request $request, Reports $report): JsonResponse
     {
         $viewer = $request->user();
         $isOwner = $viewer !== null && $viewer->id === $report->user_id;
         $isAdmin = $viewer !== null && $viewer->isAdmin();
+
+        // Admin instansi hanya boleh melihat laporan yang ditugaskan ke
+        // instansinya. Ini yang membuat dashboard antar-dinas terisolasi.
+        if ($viewer?->isAgencyAdmin()
+            && ($viewer->agency_id === null
+                || (int) $report->assigned_agency_id !== (int) $viewer->agency_id)) {
+            return $this->sendError(
+                'Laporan ini bukan bagian dari instansi Anda.',
+                403
+            );
+        }
 
         $isPubliclyVisible = ! $report->is_private
             && in_array($report->status, [Reports::STATUS_VERIFIED, Reports::STATUS_FOLLOWED_UP], true);
@@ -182,7 +120,7 @@ class ReportsController extends Controller
             );
         }
 
-        $report->load(['category', 'aiPredictedCategory', 'user', 'logs.changedBy']);
+        $report->load(['category', 'aiPredictedCategory', 'assignedAgency', 'user', 'logs.changedBy']);
 
         return $this->sendResponse(
             (new ReportDetailResource($report))->resolve($request),
@@ -190,15 +128,6 @@ class ReportsController extends Controller
         );
     }
 
-    /**
-     * Metadata pagination untuk response.
-     *
-     * Ditaruh di key "meta" (di luar 3 kunci inti success/message/data)
-     * supaya bentuk data tetap konsisten dengan modul lain.
-     *
-     * @param  LengthAwarePaginator  $paginator
-     * @return array<string, mixed>
-     */
     protected function paginationMeta($paginator): array
     {
         return [

@@ -51,6 +51,11 @@ class ReportsSeeder extends Seeder
         // helper: cari kategori berdasarkan label model
         $cat = fn (int $labelId) => Categories::where('ai_label_id', $labelId)->first()?->id;
 
+        // helper: instansi default untuk kategori (diisi AgencySeeder).
+        $agencyForCategory = fn (?int $categoryId) => $categoryId
+            ? Categories::whereKey($categoryId)->value('default_agency_id')
+            : null;
+
         $reports = [
             // ---------------- STATUS: followed_up (sudah selesai) ----------------
             [
@@ -303,6 +308,9 @@ class ReportsSeeder extends Seeder
                 'ticket_number' => $data['ticket'],
                 'user_id' => $citizen->id,
                 'category_id' => $data['cat'],
+                'assigned_agency_id' => in_array($data['status'], [Reports::STATUS_VERIFIED, Reports::STATUS_FOLLOWED_UP], true)
+                    ? $agencyForCategory($data['cat'])
+                    : null,
                 'ai_pred_cat_id' => $data['ai_cat'] ?? $data['cat'],
                 'ai_confidence' => $data['conf'],
                 'ai_priority' => $data['priority'],

@@ -79,9 +79,7 @@ class CategoriesController extends Controller
     public function index(Request $request): JsonResponse
     {
         $categories = Categories::query()
-            // when($kondisi, $callback): menjalankan $callback HANYA kalau
-            // $kondisi true. Ini membuat query string dinamis tetap rapi
-            // tanpa-if yang bercabang.
+            ->with('defaultAgency')
             ->when(
                 $request->filled('search'),
                 fn ($query) => $query->search((string) $request->input('search'))
@@ -90,29 +88,18 @@ class CategoriesController extends Controller
                 $request->boolean('with_counts'),
                 fn ($query) => $query->withCount('reports')
             )
-            // Master data selalu diurutkan agar tampilan stabil di semua device.
             ->orderBy('name')
             ->get();
 
-        // Resource::collection(...)->resolve($request) mengubah Resource
-        // menjadi array biasa, supaya bisa dibungkus sendResponse() di Base
-        // Controller dan menghasilkan envelope yang konsisten.
         return $this->sendResponse(
             CategoriesResource::collection($categories)->resolve($request),
             'Daftar kategori berhasil dimuat.'
         );
     }
 
-    /**
-     * GET /api/categories/{category}
-     *
-     * Detail satu kategori. Dipakai Next.js untuk halaman "detail kategori"
-     * atau saat admin ingin melihat berapa laporan yang pernah masuk kategori ini.
-     */
     public function show(Request $request, Categories $category): JsonResponse
     {
-        // withCount dipakai agar field "reports_count" muncul di dalam Resource.
-        $category->loadCount('reports');
+        $category->load('defaultAgency')->loadCount('reports');
 
         return $this->sendResponse(
             (new CategoriesResource($category))->resolve($request),
@@ -120,21 +107,10 @@ class CategoriesController extends Controller
         );
     }
 
-    /**
-     * POST /api/categories
-     *
-     * Tambah kategori baru.
-     *
-     * @param  StoreCategoryRequest  $request  Sudah divalidasi oleh Laravel.
-     *                                         $request->validated() berisi HANYA
-     *                                         field yang lolos aturan + ada di rules.
-     */
     public function store(StoreCategoryRequest $request): JsonResponse
     {
-        // $request->validated() aman dipakai langsung di mass-assignment:
-        // field tambahan yang dikirim CLIENT (mis. "id" atau "created_by")
-        // tidak ikut terbawa karena tidak ada di rules.
         $category = Categories::create($request->validated());
+        $category->load('defaultAgency');
 
         return $this->sendResponse(
             (new CategoriesResource($category))->resolve($request),
@@ -143,43 +119,23 @@ class CategoriesController extends Controller
         );
     }
 
-    /**
-     * PUT /api/categories/{category}
-     *
-     * Ubah kategori. Method ini menerima PATCH semantics: field yang tidak
-     * dikirim tidak akan diubah (berkat aturan "sometimes").
-     */
     public function update(UpdateCategoryRequest $request, Categories $category): JsonResponse
     {
-        // update() hanya mengubah kolom yang ada di $fillable model.
         $category->update($request->validated());
 
         return $this->sendResponse(
-            (new CategoriesResource($category->fresh()))->resolve($request),
+            (new CategoriesResource($category->fresh(['defaultAgency'])))->resolve($request),
             'Kategori berhasil diperbarui.'
         );
     }
 
-    /**
-     * DELETE /api/categories/{category}
-     *
-     * Hapus kategori, TAPI hanya kalau belum dipakai laporan apa pun.
-     *
-     * Kenapa ada penjaga ini?
-     * Field reports.category_id punya foreign key ke categories. Menghapus
-     * kategori yang sudah dipakai akan:
-     *   - menggagalkan delete (DB error, 500) kalau FK-nyarestrict, atau
-     *   - menghapus/mengosongkan data laporan historis (data loss).
-     * Jadi lebih baik ditolak dengan pesan jelas (409 Conflict) daripada
-     * gagal diam-diam di level database.
-     */
     public function destroy(Categories $category): JsonResponse
     {
         if ($category->reports()->exists()) {
             return $this->sendError(
                 'Kategori masih digunakan oleh laporan sehingga tidak dapat dihapus. '
                 .'Nonaktifkan kategori atau pindahkan laporan ke kategori lain.',
-                409 // 409 Conflict = request bentrok dengan state resource saat ini
+                409
             );
         }
 

@@ -43,6 +43,14 @@ class CategoriesResource extends JsonResource
             'name' => $this->name,
             'icon' => $this->icon,
 
+            // Instansi default yang menangani kategori ini.
+            'default_agency_id' => $this->default_agency_id,
+            'default_agency' => $this->whenLoaded('defaultAgency', fn () => $this->defaultAgency ? [
+                'id' => $this->defaultAgency->id,
+                'name' => $this->defaultAgency->name,
+                'acronym' => $this->defaultAgency->acronym,
+            ] : null),
+
             // whenCounted(): field ini HANYA muncul kalau query-nya memakai
             // withCount('reports'). Kalau tidak, field disembunyikan saja
             // (bukan null) supaya payload tetap ramping.

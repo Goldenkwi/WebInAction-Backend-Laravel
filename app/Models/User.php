@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -35,7 +36,7 @@ use Laravel\Sanctum\HasApiTokens;
  * dan langsung mendapat hak admin. Ini namanya privilege escalation.
  * Role di-set lewat method registerCitizen() yang selalu mengunci citizen.
  */
-#[Fillable(['name', 'email', 'password'])]
+#[Fillable(['name', 'email', 'password', 'agency_id'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -71,6 +72,25 @@ class User extends Authenticatable
     public function reports(): HasMany
     {
         return $this->hasMany(Reports::class);
+    }
+
+    /**
+     * Instansi tempat user ini bertugas.
+     *
+     * Hanya terisi untuk role agency_admin. Warga dan verifikator bernilai
+     * NULL karena mereka tidak terikat pada satu instansi.
+     */
+    public function agency(): BelongsTo
+    {
+        return $this->belongsTo(Agency::class, 'agency_id');
+    }
+
+    /**
+     * Apakah user ini admin instansi (bukan admin verifikator)?
+     */
+    public function isAgencyAdmin(): bool
+    {
+        return $this->role === self::ROLE_AGENCY;
     }
 
     /**
