@@ -71,6 +71,15 @@ class UserResource extends JsonResource
             'role' => $this->role,
             'role_label' => $this->roleLabel(),
 
+            // Instansi petugas. NULL untuk warga & verifikator.
+            'agency_id' => $this->agency_id,
+            'agency' => $this->whenLoaded('agency', fn () => $this->agency ? [
+                'id' => $this->agency->id,
+                'name' => $this->agency->name,
+                'acronym' => $this->agency->acronym,
+                'sla_days' => $this->agency->sla_days,
+            ] : null),
+
             'created_at' => $this->created_at?->toIso8601String(),
         ];
     }

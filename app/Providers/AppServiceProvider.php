@@ -39,6 +39,11 @@ class AppServiceProvider extends ServiceProvider
             return $user->isAdmin();
         });
 
+        // Master data instansi juga hanya boleh diubah admin.
+        Gate::define('manage-agencies', function (User $user) {
+            return $user->isAdmin();
+        });
+
         // -------------------------------------------------------------------
         // 2. GATE MODUL LAPORAN
         // -------------------------------------------------------------------

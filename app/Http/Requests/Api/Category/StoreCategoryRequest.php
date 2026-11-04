@@ -31,6 +31,7 @@ class StoreCategoryRequest extends ApiFormRequest
         return [
             'name' => ['required', 'string', 'min:3', 'max:100', 'unique:categories,name'],
             'icon' => ['nullable', 'string', 'max:50'],
+            'default_agency_id' => ['nullable', 'integer', 'exists:agencies,id'],
         ];
     }
 
@@ -42,6 +43,7 @@ class StoreCategoryRequest extends ApiFormRequest
         return [
             'name.required' => 'Nama kategori wajib diisi.',
             'name.unique' => 'Kategori dengan nama tersebut sudah ada.',
+            'default_agency_id.exists' => 'Instansi default yang dipilih tidak ditemukan.',
         ];
     }
 }

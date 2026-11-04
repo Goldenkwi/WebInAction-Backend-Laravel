@@ -3,6 +3,8 @@
 namespace App\Http\Requests\Api\Report;
 
 use App\Http\Requests\Api\ApiFormRequest;
+use App\Models\Reports;
+use App\Models\User;
 
 /**
  * Validasi endpoint tindak lanjut laporan (FR-ADM-04).
@@ -20,7 +22,24 @@ class FollowUpReportRequest extends ApiFormRequest
 {
     public function authorize(): bool
     {
-        return $this->user()?->isAdmin() ?? false;
+        $user = $this->user();
+
+        if (! $user?->isAdmin()) {
+            return false;
+        }
+
+        // Admin instansi hanya boleh menindaklanjuti laporan yang ditugaskan
+        // ke instansinya sendiri. Verifikator tetap boleh melihat/menangani
+        // semua laporan karena tugasnya melakukan disposisi lintas instansi.
+        if ($user->role === User::ROLE_AGENCY) {
+            $report = $this->route('report');
+
+            return $report instanceof Reports
+                && $user->agency_id !== null
+                && (int) $report->assigned_agency_id === (int) $user->agency_id;
+        }
+
+        return true;
     }
 
     /**

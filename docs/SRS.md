@@ -102,8 +102,9 @@ Next.js 14 + Tailwind CSS.
 |---|---|---|
 | **FR-PUB-01** | Filter: `search`, `category_id`, `status`, `priority`, `start_date`, `end_date` | semua endpoint daftar |
 | **FR-PUB-02** | Timeline 3 tahap + riwayat pesan | `timeline_logs` di `GET /api/reports/{id}` |
-| **FR-STAT-01** | 4 metrik: **Rata-rata Waktu Penyelesaian (Hari)**, **Total Laporan**, **Laporan Masuk (Menunggu)**, **Laporan Selesai (Dit-cigarette)** | `GET /api/stats/summary` |
+| **FR-STAT-01** | 4 metrik: **Rata-rata Waktu Penyelesaian (Hari)**, **Total Laporan**, **Laporan Masuk (Menunggu)**, **Laporan Selesai (Ditindaklanjuti)** | `GET /api/stats/summary` |
 | **FR-STAT-02** | Breakdown per status / kategori / prioritas (untuk Pie Chart) | field `by_status`, `by_category`, `by_priority` |
+| **FR-STAT-03** | Dashboard `agency_admin` hanya menghitung laporan yang ditugaskan ke instansinya; `verifier_admin` tetap global | filter `assigned_agency_id` di `GET /api/stats/summary` |
 
 ---
 
@@ -116,7 +117,7 @@ Next.js 14 + Tailwind CSS.
 | **NFR-03** | Validasi file | `jpg, jpeg, png, webp`, maks **2 MB** | aturan `mimes` + `max:2048` |
 | **NFR-04** | Auditability | `reports_logs` **append-only** (hanya INSERT) | event `updating`/`deleting` di model `ReportsLog` melempar exception |
 | **NFR-05** | Ketahanan layanan | Gangguan AI tidak boleh menggagalkan pengiriman laporan | graceful degradation di 2 sisi (Laravel + Python) |
-| **NFR-06** | Kualitas kode | Type-safe, terformat, ter-test | 80 test otomatis, Laravel Pint |
+| **NFR-06** | Kualitas kode | Type-safe, terformat, ter-test | 98 test otomatis, Laravel Pint |
 
 ---
 
@@ -210,6 +211,11 @@ untuk 422, + `meta` untuk pagination).
 | `POST` | `/api/categories` | Admin | Tambah kategori |
 | `PUT` | `/api/categories/{id}` | Admin | Ubah kategori |
 | `DELETE` | `/api/categories/{id}` | Admin | Hapus kategori (409 jika dipakai laporan) |
+| `GET` | `/api/agencies` | Publik | Daftar instansi aktif (+`?search=`, `?active_only=0`) |
+| `GET` | `/api/agencies/{id}` | Publik | Detail instansi + kategori + statistik |
+| `POST` | `/api/admin/agencies` | Admin | Tambah instansi (+upload `logo`) |
+| `POST/PUT/PATCH` | `/api/admin/agencies/{id}` | Admin | Ubah instansi / ganti logo |
+| `DELETE` | `/api/admin/agencies/{id}` | Admin | Hapus instansi (409 jika masih dipakai) |
 | `GET` | `/api/reports/public` | Publik | Laporan publik (BR-03) + filter |
 | `GET` | `/api/reports/my` | Login | Laporan milik sendiri |
 | `POST` | `/api/reports` | citizen | Buat laporan → AI → simpan + log |
@@ -218,7 +224,7 @@ untuk 422, + `meta` untuk pagination).
 | `PATCH` | `/api/admin/reports/{id}/verify` | Admin | Verifikasi + memo → `verified` |
 | `PATCH` | `/api/admin/reports/{id}/reject` | Admin | Tolak + alasan → `rejected` |
 | `POST` | `/api/admin/reports/{id}/followup` | Admin | Tindak lanjut + bukti → `followed_up` |
-| `GET` | `/api/stats/summary` | Login | 4 metrik + breakdown |
+| `GET` | `/api/stats/summary` | Login | 4 metrik + breakdown (agency_admin difilter ke instansinya) |
 
 ### Kontrak AI Microservice (internal)
 
@@ -282,12 +288,14 @@ prasyarat fallback FR-AI-03. Detail: `docs/07-microservice-ai.md`.
 
 | Jenis | Jumlah | Cakupan |
 |---|---|---|
-| Feature test (Auth) | 9 | register, login, hash, role escalation, token invalidation |
-| Feature test (Kategori) | 12 | CRUD, role guard, unique, guard 409 |
-| Feature test (Laporan) | 30 | submit, validasi, upload, AI fallback, privasi, anonim |
-| Feature test (Admin) | 19 | verify/reject/followup, BR-01, BR-02, koreksi AI |
-| Feature test (Stats) | 6 | 4 metrik, rata-rata hari, breakdown |
-| **Total** | **80 test / 224 assertion** | semua lulus ✅ |
+| Feature test (Auth) | 10 | register, login, hash, role escalation, token invalidation |
+| Feature test (Kategori) | 11 | CRUD, role guard, unique, guard 409 |
+| Feature test (Laporan) | 31 | submit, validasi, upload, AI fallback, privasi, anonim |
+| Feature test (Admin) | 25 | verify/reject/followup, BR-01, BR-02, koreksi AI, disposisi instansi |
+| Feature test (Stats) | 10 | 4 metrik, rata-rata hari, breakdown, scoping agency_admin |
+| Feature test (Instansi) | 9 | CRUD, logo, otorisasi, guard 409 |
+| Contoh bawaan Laravel | 2 | smoke test framework |
+| **Total** | **98 test / 294 assertion** | semua lulus ✅ |
 
 ---
 
@@ -295,7 +303,7 @@ prasyarat fallback FR-AI-03. Detail: `docs/07-microservice-ai.md`.
 
 | Orang | Tugas | Output |
 |---|---|---|
-| **1 — Backend & AI** | 4 migration, 4 model, seeder, 19 endpoint, AI Microservice, 80 test, docs | repo backend + `ai-service/` |
+| **1 — Backend & AI** | 4 migration, 4 model, seeder, 25 endpoint, AI Microservice, 98 test, docs | repo backend + `ai-service/` |
 | **2 — Frontend** | Layout Next.js, Beranda warga, Laporan Publik + modal filter, Tiket Saya, Form Buat Laporan (toggle Privat & Anonim), Detail + Stepper Timeline, Dashboard admin (Pie Chart + 4 metrik), Tabel Masuk, Tabel Riwayat, Modal Terima/Tolak/Tindak Lanjut | repo frontend |
 
 Kontrak JSON untuk kedua sisi: `docs/README.md` §4.

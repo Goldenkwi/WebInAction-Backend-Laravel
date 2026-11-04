@@ -5,61 +5,45 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Reports;
 use App\Models\ReportsLog;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 
 /**
- * ============================================================================
- * STATS CONTROLLER  (FR-STAT-01)
- * ============================================================================
- * Endpoint: GET /api/stats/summary
+ * Statistik dashboard (FR-STAT-01 & FR-STAT-02).
  *
- * Mengembalikan 4 angka utama sesuai referensi "Aspirasi ITB":
- *   1. Rata-rata Waktu Penyelesaian (Hari)
- *   2. Total Laporan
- *   3. Laporan Masuk (Menunggu)
- *   4. Laporan Selesai (Ditindaklanjuti)
+ * Angka yang dikembalikan mengikuti cakupan user yang login:
+ *  - `verifier_admin` / citizen : seluruh sistem.
+ *  - `agency_admin`             : hanya laporan dengan
+ *    `reports.assigned_agency_id = users.agency_id`.
  *
- * ---------------------------------------------------------------------------
- * CARA MENGHITUNG RATA-RATA WAKTU PENYELESAIAN
- * ---------------------------------------------------------------------------
- * Waktu penyelesaian = selisih waktu laporan DIBUAT -> laporan mencapai
- * status `followed_up` (ditindaklanjuti).
- *
- * Diambil dari tabel `reports_logs` (baris log dengan status = followed_up),
- * karena `updated_at` di tabel reports bisa berubah karena hal lain.
- *
- * Perhitungan selisih dilakukan DI PHP (bukan SQL), supaya:
- *   - kodenya sama persis di MySQL maupun SQLite
- *   - tidak bergantung pada fungsi tanggal spesifik per database
- *     (julianday hanya ada di SQLite, DATEDIFF hanya di MySQL)
+ * Scoping ini penting karena dashboard instansi tidak boleh melihat angka
+ * laporan dinas lain. `agency_admin` tanpa `agency_id` sengaja di-scope ke 0
+ * supaya tidak jatuh ke "semua laporan".
  */
 class StatsController extends Controller
 {
-    /**
-     * GET /api/stats/summary
-     */
     public function summary(Request $request): JsonResponse
     {
-        $total = Reports::count();
-        $pending = Reports::where('status', Reports::STATUS_PENDING)->count();
-        $verified = Reports::where('status', Reports::STATUS_VERIFIED)->count();
-        $completed = Reports::where('status', Reports::STATUS_FOLLOWED_UP)->count();
-        $rejected = Reports::where('status', Reports::STATUS_REJECTED)->count();
+        $agencyId = $this->agencyScopeId($request);
+        $reports = $this->reportsQuery($agencyId);
+
+        $total = (clone $reports)->count();
+        $pending = (clone $reports)->where('status', Reports::STATUS_PENDING)->count();
+        $verified = (clone $reports)->where('status', Reports::STATUS_VERIFIED)->count();
+        $completed = (clone $reports)->where('status', Reports::STATUS_FOLLOWED_UP)->count();
+        $rejected = (clone $reports)->where('status', Reports::STATUS_REJECTED)->count();
 
         return $this->sendResponse([
-            // --- 4 metrik utama (FR-STAT-01) ---
             'total_reports' => $total,
             'pending_reports' => $pending,
             'completed_reports' => $completed,
-            'average_resolution_days' => $this->averageResolutionDays(),
+            'average_resolution_days' => $this->averageResolutionDays($agencyId),
 
-            // --- Rincian tambahan untuk dashboard admin ---
             'verified_reports' => $verified,
             'rejected_reports' => $rejected,
 
-            // Breakdown per status (untuk pie chart).
             'by_status' => [
                 ['status' => Reports::STATUS_PENDING,     'label' => 'Menunggu',        'count' => $pending],
                 ['status' => Reports::STATUS_VERIFIED,    'label' => 'Terverifikasi',   'count' => $verified],
@@ -67,25 +51,49 @@ class StatsController extends Controller
                 ['status' => Reports::STATUS_REJECTED,    'label' => 'Ditolak',         'count' => $rejected],
             ],
 
-            // Breakdown per kategori.
-            'by_category' => $this->byCategory(),
+            'by_category' => $this->byCategory($agencyId),
 
-            // Breakdown per prioritas/urgensi.
-            'by_priority' => $this->byPriority(),
+            'by_priority' => $this->byPriority($agencyId),
         ], 'Statistik dashboard berhasil dimuat.');
     }
 
     /**
-     * Rata-rata hari penyelesaian (dibulatkan 2 desimal).
+     * ID instansi yang membatasi statistik, atau NULL untuk statistik global.
+     *
+     * `agency_admin` tanpa instansi memakai ID 0 (tidak ada laporan yang cocok)
+     * agar tidak bocor menjadi statistik seluruh sistem.
      */
-    protected function averageResolutionDays(): float
+    protected function agencyScopeId(Request $request): ?int
+    {
+        $user = $request->user();
+
+        if ($user?->isAgencyAdmin()) {
+            return (int) ($user->agency_id ?? 0);
+        }
+
+        return null;
+    }
+
+    /**
+     * Query dasar laporan yang sudah dibatasi ke instansi (kalau ada).
+     */
+    protected function reportsQuery(?int $agencyId): Builder
+    {
+        return Reports::query()->when(
+            $agencyId !== null,
+            fn (Builder $query) => $query->where('assigned_agency_id', $agencyId)
+        );
+    }
+
+    protected function averageResolutionDays(?int $agencyId): float
     {
         $durations = ReportsLog::query()
-            // WAJIB qualify nama kolom: tabel reports_logs DAN reports sama-sama
-            // punya kolom "status" & "created_at". Tanpa prefix, SQLite/MySQL
-            // akan complaining "ambiguous column name".
             ->where('reports_logs.status', Reports::STATUS_FOLLOWED_UP)
             ->join('reports', 'reports.id', '=', 'reports_logs.report_id')
+            ->when(
+                $agencyId !== null,
+                fn (Builder $query) => $query->where('reports.assigned_agency_id', $agencyId)
+            )
             ->select([
                 'reports.created_at as report_created_at',
                 'reports_logs.created_at as log_created_at',
@@ -106,12 +114,9 @@ class StatsController extends Controller
         return round($durations->avg(), 2);
     }
 
-    /**
-     * Jumlah laporan per kategori (hanya yang punya kategori).
-     */
-    protected function byCategory(): array
+    protected function byCategory(?int $agencyId): array
     {
-        return Reports::query()
+        return $this->reportsQuery($agencyId)
             ->whereNotNull('category_id')
             ->with('category')
             ->get()
@@ -131,10 +136,7 @@ class StatsController extends Controller
             ->all();
     }
 
-    /**
-     * Jumlah laporan per prioritas.
-     */
-    protected function byPriority(): array
+    protected function byPriority(?int $agencyId): array
     {
         $labels = [
             Reports::PRIORITY_DARURAT => 'Darurat',
@@ -143,11 +145,16 @@ class StatsController extends Controller
             Reports::PRIORITY_RENDAH => 'Rendah',
         ];
 
-        return collect($labels)->map(function ($label, $value) {
+        $counts = $this->reportsQuery($agencyId)
+            ->selectRaw('priority, COUNT(*) as total')
+            ->groupBy('priority')
+            ->pluck('total', 'priority');
+
+        return collect($labels)->map(function ($label, $value) use ($counts) {
             return [
                 'priority' => $value,
                 'label' => $label,
-                'count' => Reports::where('priority', $value)->count(),
+                'count' => (int) ($counts[$value] ?? 0),
             ];
         })->all();
     }

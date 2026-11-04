@@ -46,6 +46,14 @@ class ReportDetailResource extends JsonResource
                 'icon' => $this->category->icon,
             ] : null,
 
+            'agency' => $this->whenLoaded('assignedAgency', fn () => $this->assignedAgency ? [
+                'id' => $this->assignedAgency->id,
+                'name' => $this->assignedAgency->name,
+                'acronym' => $this->assignedAgency->acronym,
+                'sla_days' => $this->assignedAgency->sla_days,
+                'logo_full_url' => $this->assignedAgency->logo_full_url,
+            ] : null),
+
             'status' => $this->status,
             'status_label' => $this->statusLabel(),
             'priority' => $this->priority,

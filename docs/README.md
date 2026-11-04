@@ -22,6 +22,11 @@ walkthrough-nya.
 | `/api/categories` | POST | Admin | ✅ |
 | `/api/categories/{id}` | PUT | Admin | ✅ |
 | `/api/categories/{id}` | DELETE | Admin | ✅ |
+| `/api/agencies` | GET | Publik | ✅ |
+| `/api/agencies/{id}` | GET | Publik | ✅ |
+| `/api/admin/agencies` | POST | Admin | ✅ |
+| `/api/admin/agencies/{id}` | POST/PUT/PATCH | Admin | ✅ |
+| `/api/admin/agencies/{id}` | DELETE | Admin | ✅ |
 | `/api/reports/public` | GET | Publik | ✅ |
 | `/api/reports/my` | GET | Login | ✅ |
 | `/api/reports` | POST | citizen | ✅ |
@@ -30,9 +35,9 @@ walkthrough-nya.
 | `/api/admin/reports/{id}/verify` | PATCH | Admin | ✅ |
 | `/api/admin/reports/{id}/reject` | PATCH | Admin | ✅ |
 | `/api/admin/reports/{id}/followup` | POST | Admin | ✅ |
-| `/api/stats/summary` | GET | Login | ✅ |
+| `/api/stats/summary` | GET | Login (agency_admin difilter ke instansinya) | ✅ |
 
-**Total: 19 route API · 80 test otomatis · semua lulus.**
+**Total: 25 route API · 98 test otomatis · semua lulus.**
 
 ---
 
@@ -44,6 +49,7 @@ app/
 │   ├── Controller.php              ← BASE: JSON envelope (success/message/data)
 │   └── Api/
 │       ├── CategoriesController.php ← CONTOH 1 (pola master data)
+│       ├── AgencyController.php     ← instansi/unit kerja + upload logo
 │       ├── ReportsController.php    ← store / my / public / show
 │       ├── StatsController.php      ← 4 metrik + breakdown pie chart
 │       └── Admin/
@@ -51,16 +57,19 @@ app/
 ├── Http/Requests/Api/             ← GERBANG: validasi + otorisasi
 │   ├── ApiFormRequest.php          ← base: error 422/403 selalu enveloped
 │   ├── Auth/{Register,Login}Request.php
+│   ├── Agency/{Store,Update}AgencyRequest.php
 │   ├── Category/{Store,Update}CategoryRequest.php
 │   └── Report/{Store,Verify,Reject,FollowUp}ReportRequest.php
 ├── Http/Resources/                ← SHAPING + penyensoran data
 │   ├── CategoriesResource.php
+│   ├── AgencyResource.php
 │   ├── UserResource.php
 │   ├── ReportsResource.php
 │   ├── ReportDetailResource.php
 │   └── ReportsLogResource.php
 ├── Models/
 │   ├── User.php          ← role, token Sanctum, registerCitizen()
+│   ├── Agency.php        ← instansi, logo, SLA, relasi kategori/laporan/user
 │   ├── Categories.php    ← 12 kategori + kolom ai_label_id
 │   ├── Reports.php       ← scopes (public/filter), status, prioritas
 │   └── ReportsLog.php    ← audit trail APPEND-ONLY (NFR-04)
@@ -80,11 +89,11 @@ ai-service/               ← AI MICROSERVICE (Python/FastAPI)
 ├── tools/{train,evaluate,check_labels}.py
 └── README.md
 
-routes/api.php            ← 19 route
+routes/api.php            ← 25 route
 bootstrap/app.php         ← penyatuan error 401/403/404/409/429
 config/services.php       ← kontrak ke AI service + threshold
 database/{migrations,seeders,factories}/
-tests/Feature/Api/        ← 80 test
+tests/Feature/Api/        ← 98 test
 docs/                     ← dokumentasi lengkap
 ```
 
@@ -102,7 +111,7 @@ cp .env.example .env && php artisan key:generate
 ### 3.2 Database — MySQL (KONFIGURASI AKTIF ✅)
 
 `.env` repo ini sudah diset ke **MySQL 8.4** dan **sudah diverifikasi jalan**
-(migrate + seed + 81 test + smoke test end-to-end).
+(migrate + seed + 98 test + smoke test end-to-end).
 
 ```env
 DB_CONNECTION=mysql
@@ -140,12 +149,17 @@ Kalau mau kerja tanpa MySQL (mis. di laptop yang ribet install server):
 
 ```env
 DB_CONNECTION=sqlite
-DB_DATABASE=/home/mar_coding/Coding/Lomba/WebInAction/database/database.sqlite
+DB_DATABASE=/absolute/path/ke/WebInAction/database/database.sqlite
 DB_HOST=
 DB_PORT=
 DB_USERNAME=
 DB_PASSWORD=
 ```
+
+> Di Windows gunakan garis miring, mis.
+> `DB_DATABASE=C:/laragon/www/WebInAction/database/database.sqlite`.
+> File SQLite harus sudah ada (buat dengan `type nul > database\database.sqlite`
+> di cmd, atau `New-Item database\database.sqlite` di PowerShell).
 
 #### Tips: jalankan test juga terhadap MySQL
 
@@ -158,7 +172,7 @@ DB_CONNECTION=mysql DB_HOST=127.0.0.1 DB_PORT=3306 \
   DB_DATABASE=laravel_test DB_USERNAME=root DB_PASSWORD= php artisan test
 ```
 
-Hasil saat ini: **81/81 lulus di SQLite maupun MySQL**.
+Hasil saat ini: **98/98 lulus di SQLite maupun MySQL**.
 
 ### 3.3 AI Microservice
 
@@ -190,9 +204,9 @@ php artisan serve
 ### 3.5 Verifikasi
 
 ```bash
-php artisan test                     # 80 test
+php artisan test                     # 98 test
 php artisan ai:check-labels          # kontrak model <-> DB
-./vendor/bin/pint --test             # style
+php vendor/bin/pint --test           # style
 ```
 
 ### 3.6 Akun Dummy
@@ -202,6 +216,135 @@ php artisan ai:check-labels          # kontrak model <-> DB
 | Warga | `warga@example.com` | `password123` |
 | Admin Verifikator | `verifier@example.com` | `password123` |
 | Admin Instansi | `agency@example.com` | `password123` |
+
+### 3.7 Windows (PowerShell / CMD)
+
+Semua perintah di dokumen ini ditulis untuk **Linux/macOS**. Di Windows ada
+beberapa perbedaan yang sering bikin error:
+
+#### a. Perintah dasar
+
+```powershell
+composer install
+npm install; npm run build
+Copy-Item .env.example .env
+php artisan key:generate
+
+# PowerShell tidak punya grep
+php -m | Select-String pdo_mysql
+
+# Pint: jangan pakai ./vendor/bin/pint
+php vendor\bin\pint
+```
+
+Kalau memakai **CMD**, padanan `cp` adalah `copy .env.example .env`, dan
+pemisah perintah `;` diganti `&&`.
+
+#### b. Python / AI service
+
+Venv Windows menyimpan executable di `.venv\Scripts`, bukan `.venv/bin`:
+
+```powershell
+cd ai-service
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
+
+Kalau muncul:
+
+```text
+... cannot be loaded because running scripts is disabled on this system
+```
+
+jalankan sekali di sesi PowerShell itu:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+```
+
+Lalu:
+
+```powershell
+python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+python -m pip install -r requirements.txt
+python -m pip install gdown
+bash setup-models.sh
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8100
+```
+
+`setup-models.sh` adalah skrip **bash**. Jalankan dari **Git Bash** atau
+**WSL**. Kalau tidak punya keduanya, unduh model manual dari PowerShell:
+
+```powershell
+python -m gdown --folder -O models/category 1eB8bWHMlay6nlHNE1PL8Dry28KhJ9wPF
+python -m gdown --folder -O models/priority 1o51Wh2-qdDzqqThnOetPsetjqFfWlQZO
+```
+
+> Skrip `setup-models.sh` mencari `gdown` di `.venv/bin/gdown` (path Linux).
+> Di Windows, pastikan `gdown` ada di `PATH` setelah venv aktif, atau pakai
+> perintah manual di atas.
+
+#### c. `php artisan storage:link` gagal
+
+Di Windows, pembuatan symlink bisa ditolak dengan pesan seperti:
+
+```text
+symlink(): Permission denied
+```
+
+Pilih salah satu solusi:
+
+1. Aktifkan **Developer Mode**:
+   Settings → Privacy & security → For developers → Developer Mode = On.
+2. Jalankan PowerShell **as Administrator**, lalu ulangi
+   `php artisan storage:link`.
+3. Buat **junction** (tidak butuh hak symlink):
+
+```cmd
+rmdir public\storage
+mklink /J public\storage storage\app\public
+```
+
+Junction tetap membuat `http://127.0.0.1:8000/storage/...` bisa diakses.
+Kalau `public\storage` belum ada, `rmdir` akan gagal dengan pesan
+"not found" — abaikan saja dan lanjut ke `mklink`.
+
+#### d. Variabel environment inline
+
+Gaya Linux ini **tidak jalan** di PowerShell:
+
+```bash
+DB_CONNECTION=mysql DB_DATABASE=laravel_test php artisan test
+```
+
+Gunakan:
+
+```powershell
+$env:DB_CONNECTION="mysql"
+$env:DB_HOST="127.0.0.1"
+$env:DB_PORT="3306"
+$env:DB_DATABASE="laravel_test"
+$env:DB_USERNAME="root"
+$env:DB_PASSWORD=""
+php artisan test
+```
+
+Atau lewat CMD:
+
+```cmd
+set DB_CONNECTION=mysql && set DB_DATABASE=laravel_test && php artisan test
+```
+
+#### e. Perintah multi-baris
+
+Line continuation `\` di contoh bash harus diganti backtick di PowerShell:
+
+```powershell
+php artisan test `
+  --filter=AgenciesTest
+```
+
+Di CMD gunakan `^`.
 
 ---
 
@@ -303,13 +446,21 @@ curl "$BASE/reports/1"   -H "Authorization: Bearer $TOKEN"
 # --- Admin ---
 curl "$BASE/admin/reports?status=pending&priority=darurat" -H "Authorization: Bearer $TOKEN"
 curl -X PATCH $BASE/admin/reports/1/verify -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
-  -d '{"category_id":1,"note":"Mohon tim teknis segera menangani penerangan jalan."}'
+  -d '{"category_id":1,"agency_id":1,"note":"Mohon tim teknis segera menangani penerangan jalan."}'
 curl -X PATCH $BASE/admin/reports/2/reject -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
   -d '{"note":"Konten tidak menjelaskan masalah spesifik dan tidak dapat diverifikasi."}'
 curl -X POST $BASE/admin/reports/3/followup -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" \
   -d '{"note":"Lampu PJU sudah diganti dan kabel telah diamankan."}'
 
-# --- Statistik ---
+# --- Instansi (publik) ---
+curl "$BASE/agencies?search=pupr"
+
+# --- Instansi (admin, multipart + logo) ---
+curl -X POST $BASE/admin/agencies -H "Authorization: Bearer $TOKEN" \
+  -F "name=Dinas Pekerjaan Umum dan Penataan Ruang" -F "acronym=DPUPR" \
+  -F "sla_days=5" -F "logo=@./logo.png"
+
+# --- Statistik (agency_admin otomatis hanya instansinya) ---
 curl $BASE/stats/summary -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -337,7 +488,7 @@ curl $BASE/stats/summary -H "Authorization: Bearer $TOKEN"
 ## 7. Checklist Kalau Mau Lanjut
 
 - [ ] Baca `01-arsitektur-dan-pola.md`
-- [ ] Integrasikan frontend ke 19 endpoint ini (pakai cheat sheet §5)
+- [ ] Integrasikan frontend ke 25 endpoint ini (pakai cheat sheet §5)
 - [ ] Jalankan `php artisan ai:check-labels` sebelum demo
 - [ ] Set threshold AI dari kurva kalibrasi (`ai-service/reports/*.md`)
 - [ ] Tulis test untuk setiap perubahan baru

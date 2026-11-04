@@ -38,6 +38,7 @@ class UpdateCategoryRequest extends ApiFormRequest
                 Rule::unique('categories', 'name')->ignore($this->route('category')?->id),
             ],
             'icon' => ['sometimes', 'nullable', 'string', 'max:50'],
+            'default_agency_id' => ['sometimes', 'nullable', 'integer', 'exists:agencies,id'],
         ];
     }
 
@@ -49,6 +50,7 @@ class UpdateCategoryRequest extends ApiFormRequest
         return [
             'name.required' => 'Nama kategori wajib diisi.',
             'name.unique' => 'Kategori dengan nama tersebut sudah ada.',
+            'default_agency_id.exists' => 'Instansi default yang dipilih tidak ditemukan.',
         ];
     }
 }

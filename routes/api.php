@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\ReportController as AdminReportController;
+use App\Http\Controllers\Api\AgencyController;
 use App\Http\Controllers\Api\Auth\AuthController;
 use App\Http\Controllers\Api\CategoriesController;
 use App\Http\Controllers\Api\ReportsController;
@@ -69,6 +70,29 @@ Route::middleware(['auth:sanctum', 'can:manage-categories'])->group(function () 
     Route::post('categories', [CategoriesController::class, 'store']);
     Route::put('categories/{category}', [CategoriesController::class, 'update'])->whereNumber('category');
     Route::delete('categories/{category}', [CategoriesController::class, 'destroy'])->whereNumber('category');
+});
+
+// ===========================================================================
+// MODUL INSTANSI / UNIT KERJA (master data untuk disposisi laporan)
+// ===========================================================================
+
+// Publik: dipakai untuk dropdown, badge instansi, dan halaman informasi.
+// Default hanya instansi aktif; tambahkan ?active_only=0 untuk melihat semua.
+Route::get('agencies', [AgencyController::class, 'index']);
+Route::get('agencies/{agency}', [AgencyController::class, 'show'])->whereNumber('agency');
+
+// Hanya Admin. Gate "manage-agencies" didefinisikan di AppServiceProvider.
+Route::prefix('admin')->middleware(['auth:sanctum', 'can:manage-agencies'])->group(function () {
+    Route::post('agencies', [AgencyController::class, 'store']);
+
+    // Dua route update:
+    //  - POST untuk multipart/form-data yang membawa file logo
+    //  - PUT/PATCH untuk update JSON biasa
+    Route::post('agencies/{agency}', [AgencyController::class, 'update'])->whereNumber('agency');
+    Route::match(['put', 'patch'], 'agencies/{agency}', [AgencyController::class, 'update'])
+        ->whereNumber('agency');
+
+    Route::delete('agencies/{agency}', [AgencyController::class, 'destroy'])->whereNumber('agency');
 });
 
 // ===========================================================================

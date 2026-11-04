@@ -32,6 +32,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'user_id',
     'category_id',
     'ai_pred_cat_id',
+    'assigned_agency_id',
     'ai_confidence',
     'ai_priority',
     'ai_priority_confidence',
@@ -122,6 +123,17 @@ class Reports extends Model
     }
 
     /**
+     * Instansi FINAL yang ditugaskan admin saat verifikasi.
+     *
+     * Berbeda dari categories.default_agency_id yang hanya rekomendasi:
+     * admin bebas memilih instansi lain saat verifikasi.
+     */
+    public function assignedAgency(): BelongsTo
+    {
+        return $this->belongsTo(Agency::class, 'assigned_agency_id');
+    }
+
+    /**
      * Riwayat/audit trail laporan ini (tabel reports_logs).
      */
     public function logs(): HasMany
@@ -149,7 +161,7 @@ class Reports extends Model
     /**
      * Filter generik untuk halaman daftar (FR-PUB-01).
      *
-     * Mendukung: search (judul), category_id, status, priority,
+     * Mendukung: search (judul), category_id, agency_id, status, priority,
      * start_date & end_date (rentang tanggal pembuatan).
      */
     public function scopeFilter(Builder $query, array $filters): Builder
@@ -162,6 +174,10 @@ class Reports extends Model
             ->when(
                 filled($filters['category_id'] ?? null),
                 fn (Builder $q) => $q->where('category_id', (int) $filters['category_id'])
+            )
+            ->when(
+                filled($filters['agency_id'] ?? null),
+                fn (Builder $q) => $q->where('assigned_agency_id', (int) $filters['agency_id'])
             )
             ->when(
                 filled($filters['status'] ?? null),

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Api;
 
+use App\Models\Agency;
 use App\Models\Categories;
 use App\Models\Reports;
 use App\Models\ReportsLog;
@@ -365,5 +366,121 @@ class AdminReportsTest extends TestCase
         )->assertStatus(409)
             ->assertJsonPath('success', false)
             ->assertJsonStructure(['success', 'message', 'data']);
+    }
+
+    // ==================================================================
+    // DISPOSISI INSTANSI
+    // ==================================================================
+
+    public function test_verify_uses_category_default_agency_when_agency_not_chosen(): void
+    {
+        $admin = $this->admin();
+        $agency = Agency::factory()->create();
+        $category = Categories::where('ai_label_id', 0)->first();
+        $category->update(['default_agency_id' => $agency->id]);
+
+        $report = Reports::factory()->create(['status' => Reports::STATUS_PENDING]);
+
+        $this->actingAs($admin)->patchJson(
+            '/api/admin/reports/'.$report->id.'/verify',
+            [
+                'category_id' => $category->id,
+                'note' => 'Diteruskan ke instansi default kategori ini.',
+            ]
+        )->assertStatus(200)
+            ->assertJsonPath('data.agency.id', $agency->id);
+
+        $this->assertDatabaseHas('reports', [
+            'id' => $report->id,
+            'assigned_agency_id' => $agency->id,
+        ]);
+    }
+
+    public function test_verifier_can_override_default_agency_during_verify(): void
+    {
+        $admin = $this->admin();
+        $defaultAgency = Agency::factory()->create();
+        $chosenAgency = Agency::factory()->create();
+        $category = Categories::where('ai_label_id', 0)->first();
+        $category->update(['default_agency_id' => $defaultAgency->id]);
+
+        $report = Reports::factory()->create(['status' => Reports::STATUS_PENDING]);
+
+        $this->actingAs($admin)->patchJson(
+            '/api/admin/reports/'.$report->id.'/verify',
+            [
+                'category_id' => $category->id,
+                'agency_id' => $chosenAgency->id,
+                'note' => 'Instansi dipilih manual karena lintas tupoksi.',
+            ]
+        )->assertStatus(200)
+            ->assertJsonPath('data.agency.id', $chosenAgency->id);
+
+        $this->assertDatabaseHas('reports', [
+            'id' => $report->id,
+            'assigned_agency_id' => $chosenAgency->id,
+        ]);
+    }
+
+    public function test_agency_admin_only_lists_reports_assigned_to_own_agency(): void
+    {
+        $ownAgency = Agency::factory()->create();
+        $otherAgency = Agency::factory()->create();
+
+        $agencyAdmin = User::factory()->create([
+            'role' => User::ROLE_AGENCY,
+            'agency_id' => $ownAgency->id,
+        ]);
+
+        Reports::factory()->create(['assigned_agency_id' => $ownAgency->id]);
+        Reports::factory()->create(['assigned_agency_id' => $otherAgency->id]);
+
+        $this->actingAs($agencyAdmin)
+            ->getJson('/api/admin/reports')
+            ->assertStatus(200)
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.agency.id', $ownAgency->id);
+    }
+
+    public function test_agency_admin_cannot_follow_up_other_agency_report(): void
+    {
+        $ownAgency = Agency::factory()->create();
+        $otherAgency = Agency::factory()->create();
+
+        $agencyAdmin = User::factory()->create([
+            'role' => User::ROLE_AGENCY,
+            'agency_id' => $ownAgency->id,
+        ]);
+
+        $otherReport = Reports::factory()->create([
+            'status' => Reports::STATUS_VERIFIED,
+            'assigned_agency_id' => $otherAgency->id,
+        ]);
+
+        $this->actingAs($agencyAdmin)->postJson(
+            '/api/admin/reports/'.$otherReport->id.'/followup',
+            ['note' => 'Mencoba menindaklanjuti laporan instansi lain.']
+        )->assertStatus(403);
+    }
+
+    public function test_agency_admin_can_follow_up_own_agency_report(): void
+    {
+        $agency = Agency::factory()->create();
+
+        $agencyAdmin = User::factory()->create([
+            'role' => User::ROLE_AGENCY,
+            'agency_id' => $agency->id,
+        ]);
+
+        $report = Reports::factory()->create([
+            'status' => Reports::STATUS_VERIFIED,
+            'assigned_agency_id' => $agency->id,
+        ]);
+
+        $this->actingAs($agencyAdmin)->postJson(
+            '/api/admin/reports/'.$report->id.'/followup',
+            ['note' => 'Laporan sudah ditangani oleh petugas instansi kami.']
+        )->assertStatus(200)
+            ->assertJsonPath('data.status', 'followed_up');
     }
 }

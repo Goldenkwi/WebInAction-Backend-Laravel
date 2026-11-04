@@ -36,6 +36,33 @@ Dokumentasi interaktif: <http://127.0.0.1:8100/docs>
 > torch. Wheel default di Linux menarik CUDA toolkit (~3–5 GB) yang tidak
 > diperlukan untuk inferensi CPU.
 
+### Windows (PowerShell)
+
+Venv Windows menyimpan executable di `.venv\Scripts`, **bukan** `.venv/bin`:
+
+```powershell
+cd ai-service
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# Kalau muncul "running scripts is disabled on this system":
+# Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+
+python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8100
+```
+
+`setup-models.sh` adalah skrip bash. Jalankan lewat **Git Bash/WSL**, atau
+unduh manual (PowerShell):
+
+```powershell
+python -m pip install gdown
+python -m gdown --folder -O models/category 1eB8bWHMlay6nlHNE1PL8Dry28KhJ9wPF
+python -m gdown --folder -O models/priority 1o51Wh2-qdDzqqThnOetPsetjqFfWlQZO
+```
+
 ### Unduh model (sekali saja)
 
 ```bash

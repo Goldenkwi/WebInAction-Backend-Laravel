@@ -55,6 +55,13 @@ class ReportsResource extends JsonResource
                 'icon' => $this->category->icon,
             ] : null,
 
+            // Instansi final tujuan disposisi (setelah diverifikasi admin).
+            'agency' => $this->whenLoaded('assignedAgency', fn () => $this->assignedAgency ? [
+                'id' => $this->assignedAgency->id,
+                'name' => $this->assignedAgency->name,
+                'acronym' => $this->assignedAgency->acronym,
+            ] : null),
+
             'location_text' => $this->location_text,
             'incident_date' => $this->incident_date?->toDateString(),
             'image_url' => $this->image_url,
